@@ -1052,11 +1052,34 @@
         </select>
         <div style="margin-top: 12px; font-size: 13px">API key</div>
         <input
-          type="password"
+          type="text"
           id="apiKey"
           placeholder="sk-ant-..."
           autocomplete="off"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck="false"
+          style="font-family: monospace; font-size: 12px"
         />
+        <div
+          style="display: flex; gap: 8px; margin-top: 6px; align-items: center"
+        >
+          <button
+            class="btn ghost"
+            id="hideKey"
+            style="padding: 6px 10px; font-size: 12px"
+          >
+            Hide
+          </button>
+          <button
+            class="btn ghost"
+            id="endKey"
+            style="padding: 6px 10px; font-size: 12px"
+          >
+            Jump to end
+          </button>
+          <span class="note" id="keyLen" style="margin: 0"></span>
+        </div>
         <div style="display: flex; gap: 8px; margin-top: 8px">
           <button class="btn" id="saveKey" style="flex: 1">Save key</button>
           <button class="btn ghost" id="clearKey">Clear</button>
@@ -1074,8 +1097,8 @@
     <script>
       (function () {
         "use strict";
-        const M8_VERSION = "v35";
-        const M8_BUILD = M8_VERSION + " — built-in key";
+        const M8_VERSION = "v36";
+        const M8_BUILD = M8_VERSION + " — editable key field";
         console.log(
           "%c[8ball] BUILD " + M8_BUILD,
           "color:#7f9bff;font-weight:bold;font-size:14px",
@@ -2344,8 +2367,32 @@
           store.set("m8_model2", S.model);
           LOG("model:", S.model);
         });
-        const keyEl = $("#apiKey");
+        const keyEl = $("#apiKey"),
+          keyLen = $("#keyLen");
         if (S.key) keyEl.value = S.key;
+        function showLen() {
+          if (keyLen) keyLen.textContent = keyEl.value.trim().length + " chars";
+        }
+        showLen();
+        keyEl.addEventListener("input", showLen);
+        $("#hideKey").addEventListener("click", () => {
+          const b = $("#hideKey");
+          if (keyEl.type === "text") {
+            keyEl.type = "password";
+            b.textContent = "Show";
+          } else {
+            keyEl.type = "text";
+            b.textContent = "Hide";
+          }
+        });
+        // put the caret at the very end so you can type the missing characters
+        $("#endKey").addEventListener("click", () => {
+          keyEl.focus();
+          const n = keyEl.value.length;
+          try {
+            keyEl.setSelectionRange(n, n);
+          } catch (e) {}
+        });
         function keyMsg(t) {
           keyState.textContent = t;
         }
