@@ -397,6 +397,9 @@
         <button class="btn" id="saveKey" style="flex:1">Save key</button>
         <button class="btn ghost" id="clearKey">Clear</button>
       </div>
+      <div style="margin-top:10px;font-size:13px;">Workspace ID <span style="font-weight:normal;opacity:.6">(only if 401 mentions a workspace)</span></div>
+      <input type="text" id="apiWs" placeholder="wrkspc_..." autocomplete="off"
+             autocapitalize="off" autocorrect="off" spellcheck="false" style="font-size:12px;">
       <div class="note" id="keyState">Checking…</div></div>
 
     <div class="row" style="border:none;">
@@ -406,8 +409,8 @@
 <script>
 (function(){
   "use strict";
-  const M8_VERSION="v39";
-  const M8_BUILD=M8_VERSION+" — fix mic/recogniser conflict";
+  const M8_VERSION="v43";
+  const M8_BUILD=M8_VERSION+" — no mic meter on tablets";
   console.log("%c[8ball] BUILD "+M8_BUILD,"color:#7f9bff;font-weight:bold;font-size:14px");
   // brief on-screen build tag so the running version is obvious without DevTools
   addEventListener("DOMContentLoaded",()=>{
@@ -605,7 +608,7 @@
   const store={get(k,d){try{const v=localStorage.getItem(k);return v===null?d:JSON.parse(v);}catch(e){return d;}},
     set(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}};
   const S={typeMode:store.get("m8_type",false),dbg:store.get("m8_dbg",false),tilt:store.get("m8_tilt",true),demo:store.get("m8_demo",false),orange:store.get("m8_orange",false),
-    voice:store.get("m8_voice2",true),key:store.get("m8_key","")||BUILTIN_KEY,
+    voice:store.get("m8_voice2",true),key:store.get("m8_key","")||BUILTIN_KEY,ws:store.get("m8_ws",""),
     model:store.get("m8_model2","claude-sonnet-5")};
 
   /* ---------- minimal bottom-right HUD (icon only) ----------
@@ -964,19 +967,22 @@
   }
   function stopBars(){ if(barsRAF)cancelAnimationFrame(barsRAF);barsRAF=null;micLevel=0;speechEnergy=0;
     micBandsFresh=false;for(let i=0;i<micBands.length;i++)micBands[i]=0; }
-  let heardText="", lastVoiceErr="", meterOK=true, silenceTimer=null, restarts=0, netFails=0;
+  const IS_TOUCH=("ontouchstart" in window)||navigator.maxTouchPoints>0;
+  // On Android the audio meter holds the mic and starves the speech recogniser,
+  // so we skip it there and drive the bars from recognised speech instead.
+  let heardText="", lastVoiceErr="", meterOK=!IS_TOUCH, silenceTimer=null, restarts=0, netFails=0;
   function startTalk(){
     if(!SR){lastVoiceErr="no SpeechRecognition (use Chrome)";hudError();return;}
     if(!online()){hudOffline(true);return;}
     if(listening)return;
-    LOG("startTalk()");
+    LOG("startTalk()"+(IS_TOUCH?" [touch device: mic meter off]":""));
     heardText="";restarts=0;listening=true;hudListen(false);
     startListenBubbles();
     startBars();
     // NOTE: the meter is started from rec.onstart - grabbing the mic first
     // makes Chrome fail speech recognition with a "network" error.
     try{
-      const TOUCH=("ontouchstart" in window)||navigator.maxTouchPoints>0;
+      const TOUCH=IS_TOUCH;
       rec=new SR();rec.lang="en-US";
       rec.continuous=!TOUCH;          // Android beeps on every session; one utterance is enough
       rec.interimResults=true;rec.maxAlternatives=1;
@@ -1119,7 +1125,7 @@
     "claude-sonnet-5":{in:2,out:10},
     "claude-opus-5":{in:5,out:25}
   };
-  let spendTotal=0, askCount=0;
+  let spendTotal=0, askCount=0, authMode="bearer";
   async function askAI(q){
     const sys="You are a Magic 8 Ball at an adult Halloween party, voiced by a sharp, funny millennial/Gen Z woman. "
       +"Reply with ONE line of SIX WORDS OR FEWER. Never a full sentence with explanation. "
@@ -1136,8 +1142,16 @@
     const headers={"Content-Type":"application/json"};
     let body;
     if(S.key){
-      headers["x-api-key"]=S.key;headers["anthropic-version"]="2023-06-01";
+      // current docs: direct HTTP sends the key as a Bearer token
+      headers["Authorization"]="Bearer "+S.key;
+      headers["anthropic-version"]="2023-06-01";
       headers["anthropic-dangerous-direct-browser-access"]="true";
+      // personal keys not scoped to a workspace need this
+      if(S.ws)headers["anthropic-workspace-id"]=S.ws;
+      if(authMode==="x-api-key"){                   // fallback for older keys
+        delete headers["Authorization"];
+        headers["x-api-key"]=S.key;
+      }
       body={model,max_tokens:40,system:sys,messages:[{role:"user",content:q}]};
     }else{
       body={model:"claude-sonnet-4-6",max_tokens:1000,system:sys,messages:[{role:"user",content:q}]};
@@ -1145,7 +1159,28 @@
     const t0=performance.now();
     const res=await fetch("https://api.anthropic.com/v1/messages",
       {method:"POST",headers,body:JSON.stringify(body)});
-    if(!res.ok){LOG("API error",res.status);throw new Error("api "+res.status);}
+    if(!res.ok){
+      let detail="";
+      try{const j=await res.json();detail=(j.error&&j.error.message)||JSON.stringify(j);}catch(e){}
+      LOG("API error "+res.status+": "+detail);
+      if(res.status===401){
+        if(authMode==="bearer"){                    // try the legacy header once
+          authMode="x-api-key";
+          LOG("401 with Bearer - retrying with x-api-key");
+          return await askAI(q);
+        }
+        authMode="bearer";                          // reset for next time
+        LOG("KEY REJECTED - length "+(S.key||"").length+", starts "+(S.key||"").slice(0,14));
+        if(/workspace/i.test(detail))LOG("-> this key needs a workspace id; add it in settings");
+        const el=document.getElementById("keyState");
+        if(el)el.textContent="Key rejected (401): "+(detail||"check the key");
+      }else if(res.status===400){
+        LOG("Bad request - the model name may be wrong: "+model);
+      }else if(res.status===429){
+        LOG("Rate limited or out of credit");
+      }
+      throw new Error("api "+res.status);
+    }
     const data=await res.json();
     const ms=Math.round(performance.now()-t0);
     const u=data.usage||{};
@@ -1214,6 +1249,11 @@
     try{keyEl.setSelectionRange(n,n);}catch(e){}
   });
   function keyMsg(t){keyState.textContent=t;}
+  const wsEl=$("#apiWs");
+  if(wsEl){
+    wsEl.value=S.ws||"";
+    wsEl.addEventListener("change",()=>{S.ws=wsEl.value.trim();store.set("m8_ws",S.ws);LOG("workspace id saved");});
+  }
   $("#saveKey").addEventListener("click",()=>{
     const k=keyEl.value.trim();
     if(k&&!/^sk-/.test(k)){keyMsg("That doesn't look like a key (should start sk-)");return;}
@@ -1239,6 +1279,23 @@
   function onNet(){ hudOffline(!online()); }
   window.addEventListener("offline",onNet);
   window.addEventListener("online",onNet);
+
+  /* ---------- Brave strips Chromium's speech API key: detect and adapt ---------- */
+  let isBrave=false;
+  (async()=>{
+    try{
+      if(navigator.brave&&navigator.brave.isBrave){ isBrave=await navigator.brave.isBrave(); }
+    }catch(e){}
+    if(isBrave){
+      LOG("Brave detected - speech recognition is disabled in this browser; using keyboard mode");
+      if(!S.typeMode){
+        S.typeMode=true;store.set("m8_type",true);
+        const cb=$("#tType"); if(cb)cb.checked=true;
+      }
+      const n=$("#voiceNote");
+      if(n)n.textContent="Brave blocks speech recognition. Open this page in Google Chrome for voice.";
+    }
+  })();
 
   /* ---------- keyboard fallback ---------- */
   const askWrap=$("#askWrap"), askField=$("#askField");
