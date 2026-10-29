@@ -281,6 +281,22 @@
   #dbg.on{display:block;}
 
   /* hidden settings hotspot: long-press the top-right corner to open */
+  /* hold the bottom-RIGHT corner to toggle demo (classic) mode */
+  #demoHot{position:fixed;bottom:0;right:0;z-index:55;width:16vmin;height:16vmin;
+    max-width:120px;max-height:120px;cursor:default;}
+  #demoRing{position:fixed;bottom:12px;right:12px;z-index:56;width:34px;height:34px;
+    border-radius:50%;border:2px solid rgba(255,200,120,.9);
+    opacity:0;transform:scale(.4);pointer-events:none;
+    transition:opacity .15s ease, transform 1.1s linear;}
+  #demoRing.arming{opacity:.75;transform:scale(1);}
+  /* hold the top-LEFT corner to toggle full screen */
+  #fsHot{position:fixed;top:0;left:0;z-index:55;width:16vmin;height:16vmin;
+    max-width:120px;max-height:120px;cursor:default;}
+  #fsRing{position:fixed;top:12px;left:12px;z-index:56;width:34px;height:34px;
+    border-radius:50%;border:2px solid rgba(255,255,255,.85);
+    opacity:0;transform:scale(.4);pointer-events:none;
+    transition:opacity .15s ease, transform 1.1s linear;}
+  #fsRing.arming{opacity:.7;transform:scale(1);}
   #secret{position:fixed;top:0;right:0;z-index:55;width:16vmin;height:16vmin;
     max-width:120px;max-height:120px;cursor:default;}
   #secretRing{position:fixed;top:12px;right:12px;z-index:56;width:34px;height:34px;
@@ -347,6 +363,10 @@
   </div>
   <div id="hint">Tap or shake me</div>
 
+  <div id="demoHot"></div>
+  <div id="demoRing"></div>
+  <div id="fsHot"></div>
+  <div id="fsRing"></div>
   <div id="secret"></div>
   <div id="secretRing"></div>
   <div id="panel">
@@ -354,7 +374,7 @@
     <h2>Magic 8 Ball</h2>
     <div class="sub">Tap the triangle to ask. It answers when you stop talking, or on a shake.</div>
 
-    <div class="row"><div>Demo mode<small>Rotate answers automatically</small></div>
+    <div class="row"><div>Classic mode<small>Tap = random answer, no mic or AI</small></div>
       <label class="switch"><input type="checkbox" id="tDemo"><span class="slider"></span></label></div>
     <div class="row" style="flex-direction:column;align-items:stretch;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -409,8 +429,8 @@
 <script>
 (function(){
   "use strict";
-  const M8_VERSION="v43";
-  const M8_BUILD=M8_VERSION+" — no mic meter on tablets";
+  const M8_VERSION="v45";
+  const M8_BUILD=M8_VERSION+" — demo = classic ball";
   console.log("%c[8ball] BUILD "+M8_BUILD,"color:#7f9bff;font-weight:bold;font-size:14px");
   // brief on-screen build tag so the running version is obvious without DevTools
   addEventListener("DOMContentLoaded",()=>{
@@ -737,8 +757,15 @@
   function setDemo(on){
     S.demo=on;store.set("m8_demo",on);
     clearTimeout(kioskTimer);clearTimeout(promptTimer);
-    if(on){showingPrompt=false;if(!busy&&!listening)reveal(randomAnswer());scheduleKiosk();}
-    else{showingPrompt=true;if(!busy&&!listening&&!armed)reveal(PROMPT);}
+    if(on){
+      if(armed){armed=false;stopTalk();}      // leaving voice behind
+      showingPrompt=false;
+      if(!busy&&!listening)reveal(randomAnswer());
+      scheduleKiosk();                         // still auto-rotates when left alone
+    }else{
+      showingPrompt=true;
+      if(!busy&&!listening&&!armed)reveal(PROMPT);
+    }
   }
   function newAnswer(){ if(busy)return; showingPrompt=false; reveal(randomAnswer()); scheduleKiosk(); }
 
@@ -769,11 +796,11 @@
   }
   // tap anywhere on the triangle
   stage.addEventListener("pointerdown",e=>{
-    if(e.target.closest("#panel,#secret,#secretRing"))return;
+    if(e.target.closest("#panel,#secret,#secretRing,#fsHot,#fsRing,#demoHot,#demoRing"))return;
     if(panel.classList.contains("open")){panel.classList.remove("open");return;}
-    if(S.demo){ const cb=$("#tDemo"); if(cb)cb.checked=false; setDemo(false); }  // a tap takes it out of demo
     if(busy)return;
-    LOG("tap. armed=",armed);
+    LOG("tap. armed=",armed,"demo=",S.demo);
+    if(S.demo){ newAnswer(); return; }        // classic ball: instant random answer, no mic, no AI
     if(armed){ deliver(); return; }          // second tap delivers straight away
 
     if(S.typeMode){ openAsk(); return; }          // keyboard mode: skip voice entirely
@@ -1338,11 +1365,47 @@
       (d.exitFullscreen||d.webkitExitFullscreen||function(){}).call(d);
     } else goFullscreen();
   }
+  // hold the bottom-right corner for ~1s to switch between classic and voice modes
+  const demoHot=$("#demoHot"), demoRing=$("#demoRing");
+  let demoHoldT=null;
+  demoHot.addEventListener("pointerdown",e=>{
+    e.stopPropagation();e.preventDefault();
+    demoRing.classList.add("arming");
+    demoHoldT=setTimeout(()=>{
+      demoRing.classList.remove("arming");
+      const on=!S.demo;
+      const cb=$("#tDemo"); if(cb)cb.checked=on;
+      setDemo(on);
+      LOG(on?"classic (demo) mode ON - taps give random answers"
+           :"voice mode ON - taps listen and ask Claude");
+    },1100);
+  });
+  const demoCancel=()=>{clearTimeout(demoHoldT);demoRing.classList.remove("arming");};
+  ["pointerup","pointerleave","pointercancel"].forEach(ev=>demoHot.addEventListener(ev,demoCancel));
+
+  // hold the top-left corner for ~1s to enter or leave full screen
+  const fsHot=$("#fsHot"), fsRing=$("#fsRing");
+  let fsHoldT=null;
+  fsHot.addEventListener("pointerdown",e=>{
+    e.stopPropagation();e.preventDefault();
+    fsRing.classList.add("arming");
+    fsHoldT=setTimeout(()=>{
+      fsRing.classList.remove("arming");
+      toggleFullscreen();
+      LOG("fullscreen toggled from corner");
+    },1100);
+  });
+  const fsCancel=()=>{clearTimeout(fsHoldT);fsRing.classList.remove("arming");};
+  ["pointerup","pointerleave","pointercancel"].forEach(ev=>fsHot.addEventListener(ev,fsCancel));
+
   const fsb=$("#fsBtn");
   if(fsb)fsb.addEventListener("click",()=>{panel.classList.remove("open");toggleFullscreen();});
   // the first tap on the ball also goes full screen (browsers need a user gesture)
   let fsTried=false;
-  stage.addEventListener("pointerdown",()=>{if(!fsTried){fsTried=true;goFullscreen();}},{passive:true});
+  stage.addEventListener("pointerdown",e=>{
+    if(e.target.closest("#panel,#secret,#secretRing,#fsHot,#fsRing,#demoHot,#demoRing"))return;  // corners handle themselves
+    if(!fsTried){fsTried=true;goFullscreen();}
+  },{passive:true});
 
   /* ---------- live motion readout in settings ---------- */
   setInterval(()=>{
