@@ -429,8 +429,8 @@
 <script>
 (function(){
   "use strict";
-  const M8_VERSION="v45";
-  const M8_BUILD=M8_VERSION+" — demo = classic ball";
+  const M8_VERSION="v46";
+  const M8_BUILD=M8_VERSION+" — answers reset after 10s";
   console.log("%c[8ball] BUILD "+M8_BUILD,"color:#7f9bff;font-weight:bold;font-size:14px");
   // brief on-screen build tag so the running version is obvious without DevTools
   addEventListener("DOMContentLoaded",()=>{
@@ -735,24 +735,19 @@
   const KIOSK_MS=30000, HOLD_MS=280;
   let kioskTimer=null;
   const PROMPT="Tap Me to ask a question";
-  const READ_MS=12000;               // how long an answer stays up before the prompt returns
+  const READ_MS=10000;               // an answer stays up this long, then the prompt returns
   let promptTimer=null, showingPrompt=false;
 
   function toPrompt(){
     clearTimeout(promptTimer);
-    if(S.demo)return;                                  // demo keeps rotating instead
     promptTimer=setTimeout(()=>{
       if(!busy&&!listening&&!armed){showingPrompt=true;reveal(PROMPT);}
     },READ_MS);
   }
   // demo mode: rotate through answers on a timer (settings toggle only)
-  function scheduleKiosk(){
+  function scheduleKiosk(){                 // no auto-rotation: always reset to the invitation
     clearTimeout(kioskTimer);
-    if(!S.demo){toPrompt();return;}
-    kioskTimer=setTimeout(function tick(){
-      if(!busy&&!listening&&!armed){showingPrompt=false;reveal(randomAnswer());}
-      kioskTimer=setTimeout(tick,KIOSK_MS);
-    },KIOSK_MS);
+    toPrompt();
   }
   function setDemo(on){
     S.demo=on;store.set("m8_demo",on);
@@ -761,7 +756,6 @@
       if(armed){armed=false;stopTalk();}      // leaving voice behind
       showingPrompt=false;
       if(!busy&&!listening)reveal(randomAnswer());
-      scheduleKiosk();                         // still auto-rotates when left alone
     }else{
       showingPrompt=true;
       if(!busy&&!listening&&!armed)reveal(PROMPT);
