@@ -281,6 +281,13 @@
   #dbg.on{display:block;}
 
   /* hidden settings hotspot: long-press the top-right corner to open */
+  /* subtle ghost = voice/AI mode is on */
+  #ghost{position:fixed;right:3.4%;bottom:4%;z-index:8;width:24px;height:28px;
+    color:rgba(200,214,255,.32);pointer-events:none;transition:opacity .6s ease;
+    animation:ghostFloat 4s ease-in-out infinite;filter:drop-shadow(0 0 6px rgba(150,180,255,.25));}
+  #ghost svg{width:100%;height:100%;display:block;}
+  #ghost.off{opacity:0;}
+  @keyframes ghostFloat{0%,100%{transform:translateY(0);opacity:.85;}50%{transform:translateY(-4px);opacity:1;}}
   /* hold the bottom-RIGHT corner to toggle demo (classic) mode */
   #demoHot{position:fixed;bottom:0;right:0;z-index:55;width:16vmin;height:16vmin;
     max-width:120px;max-height:120px;cursor:default;}
@@ -349,6 +356,7 @@
   </div>
 
   <div id="hud"></div>
+  <div id="ghost"><svg viewBox="0 0 24 28" fill="currentColor"><path d="M12 1C6.5 1 3 5.2 3 10.5V26l3-2.4 3 2.4 3-2.4 3 2.4 3-2.4 3 2.4V10.5C21 5.2 17.5 1 12 1z"/><circle cx="9" cy="11" r="1.7" fill="#05070f"/><circle cx="15" cy="11" r="1.7" fill="#05070f"/></svg></div>
   <div id="dbg"></div>
   <div id="askWrap">
     <div id="askCard">
@@ -429,8 +437,8 @@
 <script>
 (function(){
   "use strict";
-  const M8_VERSION="v46";
-  const M8_BUILD=M8_VERSION+" — answers reset after 10s";
+  const M8_VERSION="v47";
+  const M8_BUILD=M8_VERSION+" — ghost indicator, classic never mics";
   console.log("%c[8ball] BUILD "+M8_BUILD,"color:#7f9bff;font-weight:bold;font-size:14px");
   // brief on-screen build tag so the running version is obvious without DevTools
   addEventListener("DOMContentLoaded",()=>{
@@ -641,13 +649,20 @@
   let hudEqBars=null, hudTimer=null;
   function offlineNow(){return navigator.onLine===false;}
   function baseState(){return offlineNow()?"offline":"";}
+  function syncGhost(){
+    const g=document.getElementById("ghost");
+    if(!g)return;
+    const hudBusy=hud.classList.contains("show");
+    g.classList.toggle("off", !!S.demo || hudBusy);
+  }
   function paint(state){
     clearTimeout(hudTimer);hudEqBars=null;
-    if(!state){hud.className="";hud.innerHTML="";return;}
+    if(!state){hud.className="";hud.innerHTML="";syncGhost();return;}
     hud.className="show s-"+(state==="loud"?"loud":state);
     if(state==="listening"||state==="loud"){hud.innerHTML=eqMarkup();hudEqBars=hud.querySelectorAll(".eq i");}
     else if(state==="offline"){hud.innerHTML=ICON.wifioff;}
     else if(state==="error"){hud.innerHTML=ICON.error;}
+    syncGhost();
   }
   let paintedState=null;
   function hudHide(){paintedState=null;paint(baseState());}   // offline icon if offline, else nothing
@@ -726,6 +741,7 @@
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   function online(){return navigator.onLine!==false;}
   function voiceUsable(){
+    if(S.demo)return false;                      // classic ball: no mic, ever
     const ok=!!SR && S.voice && online();
     LOG("voiceUsable:",ok,"| SpeechAPI:",!!SR,"| voiceSetting:",S.voice,"| online:",online(),"| secureContext:",window.isSecureContext);
     return ok;
@@ -751,6 +767,7 @@
   }
   function setDemo(on){
     S.demo=on;store.set("m8_demo",on);
+    syncGhost();
     clearTimeout(kioskTimer);clearTimeout(promptTimer);
     if(on){
       if(armed){armed=false;stopTalk();}      // leaving voice behind
@@ -993,6 +1010,7 @@
   // so we skip it there and drive the bars from recognised speech instead.
   let heardText="", lastVoiceErr="", meterOK=!IS_TOUCH, silenceTimer=null, restarts=0, netFails=0;
   function startTalk(){
+    if(S.demo){LOG("classic mode - mic stays off");return;}   // belt and braces
     if(!SR){lastVoiceErr="no SpeechRecognition (use Chrome)";hudError();return;}
     if(!online()){hudOffline(true);return;}
     if(listening)return;
@@ -1424,6 +1442,7 @@
   /* ---------- go ---------- */
   requestAnimationFrame(()=>setTimeout(fitAnswer,60));
   if(!online()) hudOffline(true);
+  syncGhost();
   showingPrompt=true;
   reveal(PROMPT);           // resting state: invite a question
   if(S.demo)scheduleKiosk();
