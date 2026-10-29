@@ -281,13 +281,13 @@
   #dbg.on{display:block;}
 
   /* hidden settings hotspot: long-press the top-right corner to open */
-  /* subtle ghost = voice/AI mode is on */
+  /* subtle ghost = classic (random answer) mode is on */
   #ghost{position:fixed;right:3.4%;bottom:4%;z-index:8;width:24px;height:28px;
     color:rgba(200,214,255,.32);pointer-events:none;transition:opacity .6s ease;
     animation:ghostFloat 4s ease-in-out infinite;filter:drop-shadow(0 0 6px rgba(150,180,255,.25));}
   #ghost svg{width:100%;height:100%;display:block;}
-  #ghost.off{opacity:0;}
-  @keyframes ghostFloat{0%,100%{transform:translateY(0);opacity:.85;}50%{transform:translateY(-4px);opacity:1;}}
+  #ghost.off{opacity:0!important;visibility:hidden;}
+  @keyframes ghostFloat{0%,100%{transform:translateY(0);}50%{transform:translateY(-4px);}}
   /* hold the bottom-RIGHT corner to toggle demo (classic) mode */
   #demoHot{position:fixed;bottom:0;right:0;z-index:55;width:16vmin;height:16vmin;
     max-width:120px;max-height:120px;cursor:default;}
@@ -390,16 +390,8 @@
         <label class="switch"><input type="checkbox" id="tTilt" checked><span class="slider"></span></label></div>
       <div class="note" id="motionNote">Motion: checking…</div></div>
     <div class="row" style="flex-direction:column;align-items:stretch;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div>Voice mode<small>Tap to listen, shake to answer</small></div>
-        <label class="switch"><input type="checkbox" id="tVoice"><span class="slider"></span></label></div>
+      <div>Voice status</div>
       <div class="note" id="voiceNote"></div></div>
-
-    <div class="row" style="flex-direction:column;align-items:stretch;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div>Keyboard mode<small>Type the question instead of speaking</small></div>
-        <label class="switch"><input type="checkbox" id="tType"><span class="slider"></span></label></div>
-      <div class="note">Use this if voice fails. The keyboard's own mic button still works.</div></div>
     <div class="row"><div>Debug log<small>Show what's happening, on screen</small></div>
       <label class="switch"><input type="checkbox" id="tDbg"><span class="slider"></span></label></div>
     <div class="row"><div>Halloween colours<small>Orange instead of blue</small></div>
@@ -437,8 +429,8 @@
 <script>
 (function(){
   "use strict";
-  const M8_VERSION="v47";
-  const M8_BUILD=M8_VERSION+" — ghost indicator, classic never mics";
+  const M8_VERSION="v49";
+  const M8_BUILD=M8_VERSION+" — ghost = classic mode";
   console.log("%c[8ball] BUILD "+M8_BUILD,"color:#7f9bff;font-weight:bold;font-size:14px");
   // brief on-screen build tag so the running version is obvious without DevTools
   addEventListener("DOMContentLoaded",()=>{
@@ -633,10 +625,29 @@
 
   // ---- API key. Edit this one line to finish/replace the key. ----
   const BUILTIN_KEY="sk-ant-usr-1kTb3KGO-AYcFDG04YPByHpadPjegdLmdNtF8B1vkxbUXG5m0CrD9Xs_QIDbM5FL9-580zH-BaINLFvha1b6";
+  /* =====================================================================
+     PERSONALITY  -  edit freely. This is what Claude is told before
+     every question. Keep it in plain sentences; each line is joined.
+     ===================================================================== */
+  const PERSONA=[
+    "You are a Magic 8 Ball at an adult Halloween party, voiced by a sharp, funny millennial/Gen Z woman.",
+    "Reply with ONE line of SIX WORDS OR FEWER. Never a full sentence with explanation.",
+    "Voice: how a witty woman actually talks to her friends - confident, dry, teasing, a little spicy.",
+    "Sound natural, never like someone performing slang. Occasional light casual words are fine (babe, bestie, honestly, respectfully),",
+    "but do NOT use trend words like highkey, lowkey, delulu, rizz, slay, period, ate, no cap, or it's giving.",
+    "Never say buddy, dude, pal, champ, sport or kiddo.",
+    "Roughly a third of the time, answer in one of these flavours instead:",
+    "(a) THERAPIST - clinical psychology deadpan, e.g. boundaries, projection, attachment style, inner work, regulate, unpack that;",
+    "(b) SWIFTIE - a Taylor Swift lyric or era wink, e.g. shake it off, cruel summer, karma, blank space, enchanted.",
+    "Otherwise just be your witty self. Always answer the question actually asked - if it is trivia or silly, be funny about THAT topic.",
+    "You are married; only mention it if someone flirts or asks about romance.",
+    "No preamble, no quotes, no emoji. Just the line."
+  ].join(" ");
+
   const store={get(k,d){try{const v=localStorage.getItem(k);return v===null?d:JSON.parse(v);}catch(e){return d;}},
     set(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}};
-  const S={typeMode:store.get("m8_type",false),dbg:store.get("m8_dbg",false),tilt:store.get("m8_tilt",true),demo:store.get("m8_demo",false),orange:store.get("m8_orange",false),
-    voice:store.get("m8_voice2",true),key:store.get("m8_key","")||BUILTIN_KEY,ws:store.get("m8_ws",""),
+  const S={typeMode:false,dbg:store.get("m8_dbg",false),tilt:store.get("m8_tilt",true),demo:store.get("m8_demo",false),orange:store.get("m8_orange",false),
+    voice:true,key:store.get("m8_key","")||BUILTIN_KEY,ws:store.get("m8_ws",""),
     model:store.get("m8_model2","claude-sonnet-5")};
 
   /* ---------- minimal bottom-right HUD (icon only) ----------
@@ -653,7 +664,7 @@
     const g=document.getElementById("ghost");
     if(!g)return;
     const hudBusy=hud.classList.contains("show");
-    g.classList.toggle("off", !!S.demo || hudBusy);
+    g.classList.toggle("off", !S.demo || hudBusy);
   }
   function paint(state){
     clearTimeout(hudTimer);hudEqBars=null;
@@ -814,7 +825,6 @@
     if(S.demo){ newAnswer(); return; }        // classic ball: instant random answer, no mic, no AI
     if(armed){ deliver(); return; }          // second tap delivers straight away
 
-    if(S.typeMode){ openAsk(); return; }          // keyboard mode: skip voice entirely
     if(voiceUsable()){
       // 1) instant feedback: blank the face and start bubbling before any heavy work
       armed=true;
@@ -1061,14 +1071,9 @@
             setTimeout(()=>{if(armed&&!busy)startTalk();},350);
             return;
           }
-          LOG("speech unavailable on this device ("+netFails+") - offering keyboard");
+          LOG("speech unavailable on this device - giving a classic answer instead");
           document.body.classList.remove("seance");die.classList.remove("vanish");
-          hudHide();openAsk();                         // let them type instead
-          if(netFails>=2&&!S.typeMode){                // stop trying voice after two failures
-            S.typeMode=true;store.set("m8_type",true);
-            const cb=$("#tType"); if(cb)cb.checked=true;
-            LOG("keyboard mode enabled automatically");
-          }
+          hudError();newAnswer();                      // guest still gets an answer
           return;
         }
         hudError();scheduleKiosk();
@@ -1166,17 +1171,7 @@
   };
   let spendTotal=0, askCount=0, authMode="bearer";
   async function askAI(q){
-    const sys="You are a Magic 8 Ball at an adult Halloween party, voiced by a sharp, funny millennial/Gen Z woman. "
-      +"Reply with ONE line of SIX WORDS OR FEWER. Never a full sentence with explanation. "
-      +"Voice: how a witty woman actually talks to her friends - confident, dry, teasing, a little spicy. "
-      +"Sound natural, never like someone performing slang. Occasional light casual words are fine (babe, bestie, honestly, "
-      +"respectfully), but do NOT use trend words like highkey, lowkey, delulu, rizz, slay, period, ate, no cap, or it's giving. "
-      +"Never say buddy, dude, pal, champ, sport or kiddo. "
-      +"Roughly a third of the time, answer in one of these flavours instead: "
-      +"(a) THERAPIST - clinical psychology deadpan, e.g. boundaries, projection, attachment style, inner work, regulate, unpack that; "
-      +"(b) SWIFTIE - a Taylor Swift lyric or era wink, e.g. shake it off, cruel summer, karma, blank space, enchanted. "
-      +"Otherwise just be your witty self. Always answer the question actually asked - if it is trivia or silly, be funny about THAT topic. "
-      +"You are married; only mention it if someone flirts or asks about romance. No preamble, no quotes, no emoji. Just the line.";
+    const sys=PERSONA;
     const model=S.model||"claude-sonnet-5";
     const headers={"Content-Type":"application/json"};
     let body;
@@ -1252,7 +1247,6 @@
   panel.addEventListener("pointerdown",e=>e.stopPropagation());
 
   function bind(id,key,cb){const el=$(id);el.checked=S[key];el.addEventListener("change",()=>{S[key]=el.checked;cb&&cb(el.checked);});}
-  bind("#tType","typeMode",v=>store.set("m8_type",v));
   bind("#tDbg","dbg",v=>{
     store.set("m8_dbg",v);
     const el=document.getElementById("dbg");
@@ -1261,7 +1255,6 @@
   });
   bind("#tDemo","demo",setDemo);
   bind("#tTilt","tilt",v=>{store.set("m8_tilt",v);applyTilt();});
-  bind("#tVoice","voice",v=>{store.set("m8_voice2",v);if(v)ensurePermissions();});
   bind("#tOrange","orange",v=>{store.set("m8_orange",v);document.body.classList.toggle("orange",v);});
   document.body.classList.toggle("orange",S.orange);
   if(S.dbg){const d=document.getElementById("dbg");d.classList.add("on");d.textContent=dbgLines.join("\n");}
@@ -1326,11 +1319,7 @@
       if(navigator.brave&&navigator.brave.isBrave){ isBrave=await navigator.brave.isBrave(); }
     }catch(e){}
     if(isBrave){
-      LOG("Brave detected - speech recognition is disabled in this browser; using keyboard mode");
-      if(!S.typeMode){
-        S.typeMode=true;store.set("m8_type",true);
-        const cb=$("#tType"); if(cb)cb.checked=true;
-      }
+      LOG("Brave detected - speech recognition is disabled in this browser; use Chrome");
       const n=$("#voiceNote");
       if(n)n.textContent="Brave blocks speech recognition. Open this page in Google Chrome for voice.";
     }
